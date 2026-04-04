@@ -25,3 +25,15 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# docs (local only)
+docs/
+
+# temp files
+tmp/
+
+# all nested node_modules
+node_modules/
+
+# dist
+dist/
