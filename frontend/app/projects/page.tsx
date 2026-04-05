@@ -3,7 +3,7 @@
 // - Display as a grid of ProjectCard components
 // - "New Project" button → navigates to /projects/new
 // - Empty state for users with no projects yet
-// - Protected route — redirect to /auth/login if unauthenticated
+// - Protected route - redirect to /auth/login if unauthenticated
 export default function ProjectsPage() {
   return (
     <div className="min-h-screen p-8">

@@ -1,36 +1,61 @@
 import { Router } from 'express';
+import crypto from 'crypto';
 import { githubAuth } from '../middleware/github-auth';
+import { getProjects, getProject, createProject, deleteProject } from '../storage/memory-store';
+import type { Project } from '@vibeboard/shared';
 
 export const projectsRouter = Router();
 
-// All routes require GitHub auth
 projectsRouter.use(githubAuth);
 
-// GET /projects — returns user's projects from memory store
-projectsRouter.get('/', (_req, res) => {
-  // TODO: Fetch projects from memory store filtered by authenticated user
-  res.json({ data: [], message: 'Projects list — not yet implemented' });
+// GET /projects — returns user's projects
+projectsRouter.get('/', (req, res) => {
+  const projects = getProjects(req.userId!);
+  res.json({ data: projects });
 });
 
 // POST /projects — creates a project
 projectsRouter.post('/', (req, res) => {
-  // TODO: Create project in memory store
-  // Body: { name: string, source: 'scratch' | 'github', repoUrl?: string, branch?: string }
-  const { name, source } = req.body;
-  res.json({
-    data: { id: 'placeholder-id', name, source },
-    message: 'Project creation — not yet implemented',
-  });
+  const { name, source, repoUrl, branch } = req.body;
+
+  if (!name || !source) {
+    res.status(400).json({ error: 'name and source are required' });
+    return;
+  }
+
+  const now = new Date().toISOString();
+  const project: Project = {
+    id: crypto.randomUUID(),
+    name,
+    source,
+    repoUrl: repoUrl ?? null,
+    defaultBranch: branch ?? null,
+    lastScannedAt: null,
+    createdAt: now,
+    updatedAt: now,
+    userId: req.userId!,
+  };
+
+  createProject(project);
+  res.status(201).json({ data: project });
 });
 
 // GET /projects/:id — returns a single project
 projectsRouter.get('/:id', (req, res) => {
-  // TODO: Fetch project by ID from memory store
-  res.json({ data: null, message: `Project ${req.params.id} — not yet implemented` });
+  const project = getProject(req.params.id);
+  if (!project) {
+    res.status(404).json({ error: 'Project not found' });
+    return;
+  }
+  res.json({ data: project });
 });
 
 // DELETE /projects/:id — deletes a project
 projectsRouter.delete('/:id', (req, res) => {
-  // TODO: Delete project from memory store
-  res.json({ message: `Project ${req.params.id} deleted — not yet implemented` });
+  const deleted = deleteProject(req.params.id);
+  if (!deleted) {
+    res.status(404).json({ error: 'Project not found' });
+    return;
+  }
+  res.json({ message: 'Deleted' });
 });

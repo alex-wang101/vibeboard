@@ -1,6 +1,6 @@
 'use client';
 
-// TODO: App Header — top navigation bar
+// TODO: App Header - top navigation bar
 // - VibeBoard logo/name (links to /projects)
 // - Current project name (when on canvas page)
 // - User avatar + dropdown (sign out, settings)

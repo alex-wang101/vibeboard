@@ -1,31 +1,70 @@
-// TODO: GitHub service — clone repos and interact with GitHub API
+import { Octokit } from '@octokit/rest';
+import simpleGit from 'simple-git';
+import path from 'path';
+import fs from 'fs/promises';
+import crypto from 'crypto';
+import type { GitHubRepo } from '@vibeboard/shared';
 
-export async function cloneRepository(
-  _repoUrl: string,
-  _branch: string,
-  _token: string
-): Promise<string> {
-  // TODO: Use simple-git to clone the repo to a temp directory
-  // - Construct authenticated URL: https://{token}@github.com/{owner}/{repo}.git
-  // - Clone with depth=1 for speed (shallow clone)
-  // - Checkout the specified branch
-  // - Return the local path to the cloned repo
-  // - Handle cleanup after scanning (delete temp dir)
-  throw new Error('cloneRepository not implemented');
-}
+const CLONE_DIR = path.resolve(process.env.CLONE_DIR || './tmp/repos');
 
-export async function listUserRepos(_token: string): Promise<unknown[]> {
-  // TODO: Use Octokit with the user's token to list their repos
-  // - Include both owned repos and repos they have access to
-  // - Return name, fullName, private, defaultBranch, description
-  throw new Error('listUserRepos not implemented');
+export async function listUserRepos(token: string): Promise<GitHubRepo[]> {
+  const octokit = new Octokit({ auth: token });
+  const { data } = await octokit.repos.listForAuthenticatedUser({
+    per_page: 100,
+    sort: 'updated',
+    type: 'all',
+  });
+
+  return data.map((repo) => ({
+    name: repo.name,
+    fullName: repo.full_name,
+    private: repo.private,
+    defaultBranch: repo.default_branch ?? 'main',
+    description: repo.description ?? null,
+    url: repo.html_url,
+  }));
 }
 
 export async function listBranches(
-  _owner: string,
-  _repo: string,
-  _token: string
+  owner: string,
+  repo: string,
+  token: string
 ): Promise<string[]> {
-  // TODO: Use Octokit to list branches for a specific repo
-  throw new Error('listBranches not implemented');
+  const octokit = new Octokit({ auth: token });
+  const { data } = await octokit.repos.listBranches({
+    owner,
+    repo,
+    per_page: 100,
+  });
+  return data.map((b) => b.name);
+}
+
+export async function cloneRepository(
+  repoUrl: string,
+  branch: string,
+  token: string
+): Promise<string> {
+  // Parse owner/repo from URL like https://github.com/owner/repo
+  const match = repoUrl.match(/github\.com\/([^/]+)\/([^/]+)/);
+  if (!match) throw new Error(`Invalid GitHub URL: ${repoUrl}`);
+  const [, owner, repo] = match;
+  const cleanRepo = repo.replace(/\.git$/, '');
+
+  const authenticatedUrl = `https://x-access-token:${token}@github.com/${owner}/${cleanRepo}.git`;
+  const clonePath = path.join(CLONE_DIR, crypto.randomUUID());
+
+  await fs.mkdir(clonePath, { recursive: true });
+
+  const git = simpleGit();
+  await git.clone(authenticatedUrl, clonePath, [
+    '--depth', '1',
+    '--branch', branch,
+    '--single-branch',
+  ]);
+
+  return clonePath;
+}
+
+export async function cleanupClone(clonePath: string): Promise<void> {
+  await fs.rm(clonePath, { recursive: true, force: true });
 }

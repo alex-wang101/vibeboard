@@ -1,6 +1,6 @@
 'use client';
 
-// TODO: Node Palette — sidebar for "design from scratch" mode
+// TODO: Node Palette - sidebar for "design from scratch" mode
 // - Lists available node types from NEXTJS_PALETTE (from @vibeboard/shared)
 // - Grouped by category: nextjs, backend, data, external
 // - Each item is draggable onto the canvas

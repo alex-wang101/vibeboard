@@ -15,7 +15,7 @@ export default function LoginPage() {
       />
       <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/50 to-black/30" />
 
-      <div className="relative z-10 flex min-h-screen flex-col justify-end px-10 pb-20 sm:px-16 md:px-24">
+      <div className="relative z-10 flex min-h-screen flex-col items-center justify-center text-center px-10 sm:px-16 md:px-24">
         <h1
           className="font-serif text-5xl sm:text-6xl font-bold tracking-tight text-white opacity-0 animate-fade-up"
           style={{ animationDelay: '0.2s' }}
@@ -37,9 +37,9 @@ export default function LoginPage() {
         >
           <button
             onClick={() => signIn('github', { callbackUrl: '/projects' })}
-            className="text-white/90 hover:text-white transition-colors text-sm tracking-widest uppercase"
+            className="rounded-lg bg-white px-8 py-3 text-sm font-semibold text-black hover:bg-white/90 transition-colors"
           >
-            [continue with github]
+            Continue with GitHub
           </button>
         </div>
       </div>

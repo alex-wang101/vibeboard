@@ -8,73 +8,64 @@ import type {
   GitHubRepo,
 } from '@vibeboard/shared';
 
-// Axios instance pointing to the backend
+// All requests go through the Next.js API proxy at /api/proxy/*
+// The proxy reads the httpOnly NextAuth cookie server-side,
+// extracts the user's GitHub ID, and forwards it to the backend.
+// No tokens are ever exposed to client-side JavaScript.
 const api = axios.create({
-  baseURL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000',
+  baseURL: '/api/proxy',
   headers: { 'Content-Type': 'application/json' },
 });
 
-// TODO: Attach the GitHub access token from the NextAuth session
-// to every request via an interceptor:
-//
-// api.interceptors.request.use(async (config) => {
-//   const session = await getSession();
-//   if (session?.accessToken) {
-//     config.headers.Authorization = `Bearer ${session.accessToken}`;
-//   }
-//   return config;
-// });
-
 // ============================================================
-// API client functions — all return placeholder types for now
+// API client
 // ============================================================
 
 export async function getProjects(): Promise<Project[]> {
-  // TODO: const { data } = await api.get('/projects');
-  return [];
+  const { data } = await api.get('/projects');
+  return data.data;
 }
 
 export async function createProject(req: CreateProjectRequest): Promise<Project> {
-  // TODO: const { data } = await api.post('/projects', req);
-  throw new Error('createProject not implemented');
+  const { data } = await api.post('/projects', req);
+  return data.data;
 }
 
 export async function getProject(id: string): Promise<Project> {
-  // TODO: const { data } = await api.get(`/projects/${id}`);
-  throw new Error(`getProject(${id}) not implemented`);
+  const { data } = await api.get(`/projects/${id}`);
+  return data.data;
 }
 
 export async function scanRepo(req: ScanRequest): Promise<ScanResponse> {
-  // TODO: const { data } = await api.post('/scan', req);
-  throw new Error('scanRepo not implemented');
+  const { data } = await api.post('/scan', req);
+  return data.data;
 }
 
 export async function getScanStatus(projectId: string): Promise<ScanResponse> {
-  // TODO: const { data } = await api.get(`/scan/${projectId}/status`);
-  throw new Error(`getScanStatus(${projectId}) not implemented`);
+  const { data } = await api.get(`/scan/${projectId}/status`);
+  return data.data;
 }
 
 export async function getArchitecture(projectId: string): Promise<ArchitectureGraph> {
-  // TODO: const { data } = await api.get(`/architecture/${projectId}`);
-  throw new Error(`getArchitecture(${projectId}) not implemented`);
+  const { data } = await api.get(`/architecture/${projectId}`);
+  return data.data;
 }
 
 export async function saveArchitecture(
   projectId: string,
   graph: ArchitectureGraph
 ): Promise<void> {
-  // TODO: await api.put(`/architecture/${projectId}`, graph);
-  throw new Error(`saveArchitecture(${projectId}) not implemented`);
+  await api.put(`/architecture/${projectId}`, graph);
 }
 
 export async function listGitHubRepos(): Promise<GitHubRepo[]> {
-  // TODO: const { data } = await api.get('/github/repos');
-  return [];
+  const { data } = await api.get('/github/repos');
+  return data.data;
 }
 
 export async function listBranches(owner: string, repo: string): Promise<string[]> {
-  // TODO: const { data } = await api.get(`/github/repos/${owner}/${repo}/branches`);
-  return [];
+  const { data } = await api.get(`/github/repos/${owner}/${repo}/branches`);
+  return data.data;
 }
 
 export default api;

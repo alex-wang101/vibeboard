@@ -1,4 +1,4 @@
-// TODO: Project Card — displayed in the projects list grid
+// TODO: Project Card - displayed in the projects list grid
 // - Shows project name, source (scratch/github), last modified date
 // - GitHub repo badge if imported
 // - Click to navigate to /projects/[projectId] (canvas view)

@@ -1,6 +1,6 @@
 'use client';
 
-// TODO: Detail Panel — right sidebar showing selected node details
+// TODO: Detail Panel - right sidebar showing selected node details
 // - Appears when a node is selected on the canvas
 // - Shows node name, type, execution context
 // - For scanned nodes: file list, imports/exports, LOC

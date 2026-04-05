@@ -1,6 +1,6 @@
 'use client';
 
-// TODO: Breadcrumb Navigation — for drill-down hierarchy
+// TODO: Breadcrumb Navigation - for drill-down hierarchy
 // - Shows the current path in the architecture tree
 // - Each segment is clickable to navigate back to that level
 // - "Root" → "app" → "dashboard" → "components"

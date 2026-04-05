@@ -1,4 +1,4 @@
-// TODO: Main canvas view for a project — the core of the app
+// TODO: Main canvas view for a project - the core of the app
 // - Loads the project's ArchitectureGraph from the backend
 // - Renders ArchitectureCanvas (React Flow) with the graph
 // - Shows NodePalette sidebar for "design from scratch" mode
@@ -26,7 +26,7 @@ export default function ProjectCanvasPage({
       </header>
       {/* TODO: Replace with ArchitectureCanvas + sidebars */}
       <div className="flex-1 flex items-center justify-center text-muted-foreground">
-        Canvas will render here — see components/canvas/
+        Canvas will render here - see components/canvas/
       </div>
     </div>
   );

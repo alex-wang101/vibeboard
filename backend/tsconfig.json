@@ -13,8 +13,9 @@
     "outDir": "./dist",
     "rootDir": "./src",
     "paths": {
-      "@vibeboard/shared": ["../shared/src"]
-    }
+      "@vibeboard/shared": ["../shared/dist"]
+    },
+    "baseUrl": "."
   },
   "include": ["src/**/*.ts"]
 }

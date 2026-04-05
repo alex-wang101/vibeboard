@@ -4,9 +4,9 @@
 /node_modules
 
 # next.js
-frontend/.next/
+.next/
 /out/
-
+.DS_Store
 # production
 /build
 

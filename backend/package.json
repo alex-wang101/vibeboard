@@ -9,11 +9,13 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@vibeboard/shared": "file:../shared",
     "@octokit/rest": "^21.1.1",
+    "@supabase/supabase-js": "^2.101.1",
+    "@vibeboard/shared": "file:../shared",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
+    "glob": "^13.0.6",
     "simple-git": "^3.27.0",
     "ts-morph": "^25.0.0"
   },
