@@ -36,7 +36,7 @@ export default function LoginPage() {
           style={{ animationDelay: '0.8s' }}
         >
           <button
-            onClick={() => signIn('github', { callbackUrl: '/projects' })}
+            onClick={() => signIn('github', { callbackUrl: '/projects/new' })}
             className="rounded-lg bg-white px-8 py-3 text-sm font-semibold text-black hover:bg-white/90 transition-colors"
           >
             Continue with GitHub

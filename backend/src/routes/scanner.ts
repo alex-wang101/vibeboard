@@ -26,7 +26,7 @@ scannerRouter.post('/', async (req, res) => {
   let clonePath: string | null = null;
 
   try {
-    clonePath = await cloneRepository(repoUrl, branch, req.githubToken!);
+    clonePath = await cloneRepository(repoUrl, branch, req.githubToken!, req.userId!, projectId);
     const graph = await scanRepository(clonePath, repoUrl, branch);
     graph.projectId = projectId;
 
@@ -41,6 +41,7 @@ scannerRouter.post('/', async (req, res) => {
         projectId,
         status: 'complete' as const,
         architecture: graph,
+        skippedImports: graph.skippedImports,
       },
     });
   } catch (err) {

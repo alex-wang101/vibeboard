@@ -5,7 +5,7 @@ export interface FileClassification {
   executionContext: ExecutionContext;
 }
 
-export function classifyFile(filePath: string): FileClassification {
+export function classifyFile(filePath: string, directives: string[] = []): FileClassification {
   const normalized = filePath.replace(/\\/g, '/');
   const basename = normalized.split('/').pop() ?? '';
   const nameWithoutExt = basename.replace(/\.(tsx?|jsx?|mjs|cjs)$/, '');
@@ -37,10 +37,14 @@ export function classifyFile(filePath: string): FileClassification {
     type = 'config';
   }
 
-  // ExecutionContext classification
+  // ExecutionContext classification — directives take priority
   let executionContext: ExecutionContext = 'server';
 
-  if (type === 'api-route') {
+  if (directives.includes('use client')) {
+    executionContext = 'client';
+  } else if (directives.includes('use server')) {
+    executionContext = 'server';
+  } else if (type === 'api-route') {
     executionContext = 'api';
   } else if (type === 'middleware') {
     executionContext = 'edge';

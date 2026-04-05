@@ -15,16 +15,19 @@ export interface ArchitectureGraph {
   lastModifiedAt: string;
   root: ArchitectureNode;
   edges: FlowEdge[];                // All edges across the entire graph
+  skippedImports: SkippedImport[];  // Imports that couldn't be resolved
 }
 
 export interface ArchitectureNode {
   id: string;                        // Unique ID (path for scanned, generated for manual)
   name: string;                      // Display name
+  displayName?: string;              // Human-readable name (e.g., "Settings Page", "useAuth")
   type: NodeType;
   executionContext: ExecutionContext;
   children: ArchitectureNode[];      // Sub-folders/groups
   files: FileInfo[];                 // Direct files at this level
   metadata: NodeMetadata;
+  folderEdges?: FolderEdges;         // Precomputed edges at this folder level
   position?: { x: number; y: number }; // Manual canvas position (if user dragged it)
   isManual: boolean;                 // true if user-created, false if scanned
 }
@@ -59,6 +62,7 @@ export type ExecutionContext =
 export interface FileInfo {
   path: string;
   name: string;
+  displayName?: string;       // Human-readable name (e.g., "Button", "useAuth")
   type: NodeType;
   executionContext: ExecutionContext;
   loc: number;
@@ -90,6 +94,20 @@ export interface FlowEdge {
   samples: { from: string; to: string }[];
   isManual: boolean;          // true if user drew this edge, false if from scanning
   label?: string;             // User or AI annotation: "auth check", "data fetch"
+}
+
+// ============================================================
+// EDGE AGGREGATION — precomputed edges at each folder level
+// ============================================================
+
+export interface FolderEdges {
+  internal: FlowEdge[];     // Edges between direct children of this folder
+  outbound: FlowEdge[];     // Edges from children to nodes outside this folder
+}
+
+export interface SkippedImport {
+  sourceFile: string;       // File that contains the import
+  importPath: string;       // The unresolved module specifier
 }
 
 // ============================================================
@@ -152,6 +170,7 @@ export interface ScanResponse {
   projectId: string;
   status: 'scanning' | 'complete' | 'error';
   architecture?: ArchitectureGraph;
+  skippedImports?: SkippedImport[];
   error?: string;
 }
 

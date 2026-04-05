@@ -41,10 +41,10 @@ export default function Home() {
             Get Started
           </Link>
           <Link
-            href="/projects"
+            href="/projects/new"
             className="rounded-lg border border-white/30 px-6 py-3 text-sm font-semibold text-white hover:bg-white/10 transition-colors"
           >
-            Waitlist
+            My Projects
           </Link>
         </div>
       </div>

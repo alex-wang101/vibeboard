@@ -42,7 +42,9 @@ export async function listBranches(
 export async function cloneRepository(
   repoUrl: string,
   branch: string,
-  token: string
+  token: string,
+  userId: string,
+  projectId: string
 ): Promise<string> {
   // Parse owner/repo from URL like https://github.com/owner/repo
   const match = repoUrl.match(/github\.com\/([^/]+)\/([^/]+)/);
@@ -51,7 +53,7 @@ export async function cloneRepository(
   const cleanRepo = repo.replace(/\.git$/, '');
 
   const authenticatedUrl = `https://x-access-token:${token}@github.com/${owner}/${cleanRepo}.git`;
-  const clonePath = path.join(CLONE_DIR, crypto.randomUUID());
+  const clonePath = path.join(CLONE_DIR, userId, projectId);
 
   await fs.mkdir(clonePath, { recursive: true });
 

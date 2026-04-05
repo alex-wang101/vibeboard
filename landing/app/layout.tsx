@@ -11,6 +11,10 @@ export const metadata: Metadata = {
   title: "Vibeboard - The platform to scale",
   description:
     "Your toolkit to stop configuring and start innovating. Securely build, deploy, and scale the best experiences.",
+  icons: {
+    icon: "/sun.png",
+    apple: "/sun.png",
+  },
 }
 
 export default function RootLayout({

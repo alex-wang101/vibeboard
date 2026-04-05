@@ -72,9 +72,9 @@ export default function NewProjectPage() {
       />
       <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/50 to-black/30" />
 
-      <div className="relative z-10 flex min-h-screen flex-col justify-end px-10 pb-20 sm:px-16 md:px-24">
+      <div className="relative z-10 flex min-h-screen flex-col items-center justify-center px-10 sm:px-16 md:px-24">
         {step === 'choose' && (
-          <>
+          <div className="text-center">
             <h1
               className="font-serif text-5xl sm:text-6xl font-bold tracking-tight text-white opacity-0 animate-fade-up"
               style={{ animationDelay: '0.2s' }}
@@ -83,7 +83,7 @@ export default function NewProjectPage() {
             </h1>
 
             <p
-              className="mt-6 max-w-lg text-lg leading-relaxed text-white/80 opacity-0 animate-fade-up"
+              className="mt-6 max-w-lg mx-auto text-lg leading-relaxed text-white/80 opacity-0 animate-fade-up"
               style={{ animationDelay: '0.5s' }}
             >
               Design your system architecture on a blank canvas, or connect a
@@ -96,7 +96,7 @@ export default function NewProjectPage() {
             )}
 
             <div
-              className="mt-10 flex items-center gap-6 opacity-0 animate-fade-up"
+              className="mt-10 flex items-center justify-center gap-6 opacity-0 animate-fade-up"
               style={{ animationDelay: '0.8s' }}
             >
               <button
@@ -112,7 +112,7 @@ export default function NewProjectPage() {
                 [import from github]
               </button>
             </div>
-          </>
+          </div>
         )}
 
         {step === 'repo-picker' && (
@@ -140,11 +140,11 @@ export default function NewProjectPage() {
         )}
 
         {step === 'done' && graph && (
-          <div className="max-w-2xl opacity-0 animate-fade-up" style={{ animationDelay: '0.1s' }}>
-            <h2 className="font-serif text-3xl font-bold text-white mb-2">
+          <div className="max-w-2xl w-full opacity-0 animate-fade-up" style={{ animationDelay: '0.1s' }}>
+            <h2 className="font-serif text-3xl font-bold text-white mb-2 text-center">
               Scan complete
             </h2>
-            <p className="text-white/60 text-sm mb-6">
+            <p className="text-white/60 text-sm mb-6 text-center">
               Here&apos;s what we found in your repository.
             </p>
 

@@ -1,12 +1,11 @@
+import 'dotenv/config';
+
 import express from 'express';
 import cors from 'cors';
-import dotenv from 'dotenv';
 import { projectsRouter } from './routes/projects';
 import { githubRouter } from './routes/github';
 import { scannerRouter } from './routes/scanner';
 import { architectureRouter } from './routes/architecture';
-
-dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 4000;
