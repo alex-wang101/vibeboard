@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { githubAuth } from '../middleware/github-auth';
-import { listUserRepos, listBranches } from '../services/github';
+import { listUserRepos, listBranches, listContributors } from '../services/github';
 
 export const githubRouter = Router();
 
@@ -26,5 +26,17 @@ githubRouter.get('/repos/:owner/:repo/branches', async (req, res) => {
   } catch (err) {
     console.error('[VibeBoard] Failed to list branches:', err);
     res.status(500).json({ error: 'Failed to fetch branches' });
+  }
+});
+
+// GET /github/repos/:owner/:repo/contributors — lists contributors with profile info
+githubRouter.get('/repos/:owner/:repo/contributors', async (req, res) => {
+  try {
+    const { owner, repo } = req.params;
+    const contributors = await listContributors(owner, repo, req.githubToken!);
+    res.json({ data: contributors });
+  } catch (err) {
+    console.error('[VibeBoard] Failed to list contributors:', err);
+    res.status(500).json({ error: 'Failed to fetch contributors' });
   }
 });

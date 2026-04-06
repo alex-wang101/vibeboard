@@ -35,13 +35,13 @@ export default function Home() {
           style={{ animationDelay: '0.8s' }}
         >
           <Link
-            href="/auth/login"
+            href="/projects"
             className="rounded-lg bg-white px-6 py-3 text-sm font-semibold text-black hover:bg-white/90 transition-colors"
           >
             Get Started
           </Link>
           <Link
-            href="/projects/new"
+            href="/projects"
             className="rounded-lg border border-white/30 px-6 py-3 text-sm font-semibold text-white hover:bg-white/10 transition-colors"
           >
             My Projects

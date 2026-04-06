@@ -182,7 +182,7 @@ export function RepoPicker({ onImport, onCancel }: RepoPickerProps) {
         <div className="flex justify-end">
           <Button
             onClick={() =>
-              onImport(selectedRepo.url, selectedBranch, selectedRepo.name)
+              onImport(selectedRepo.url, selectedBranch, selectedRepo.fullName)
             }
             disabled={!selectedBranch}
             className="bg-white text-black hover:bg-white/90"

@@ -1,103 +1,172 @@
 import { create } from 'zustand';
 import type { Node, Edge } from 'reactflow';
 import type { ArchitectureGraph, ArchitectureNode, Project } from '@vibeboard/shared';
-
-// TODO: Implement all actions — currently just the interface and initial state
+import { convertToReactFlow } from '@/lib/architecture-graph';
 
 interface CanvasStore {
-  // Current project
   project: Project | null;
   architecture: ArchitectureGraph | null;
-
-  // Navigation — which level of the hierarchy we're viewing
-  currentPath: string;  // e.g., "" for root, "app/dashboard" for drill-down
+  currentPath: string;
   navigationHistory: string[];
-
-  // Canvas nodes and edges (React Flow format, derived from architecture at current path)
   nodes: Node[];
   edges: Edge[];
+  selectedNodeId: string | null;
+  hoveredNodeId: string | null;
 
-  // Actions
+  // Navigation
   navigateIn: (path: string) => void;
   navigateBack: () => void;
   navigateToRoot: () => void;
+  navigateTo: (path: string) => void;
 
-  // For "design from scratch" — manually adding nodes
+  // Selection / hover
+  selectNode: (nodeId: string | null) => void;
+  hoverNode: (nodeId: string | null) => void;
+
+  // Position persistence
+  updateNodePosition: (nodeId: string, position: { x: number; y: number }) => void;
+
+  // Manual editing (design from scratch)
   addNode: (node: ArchitectureNode) => void;
   removeNode: (nodeId: string) => void;
   updateNode: (nodeId: string, updates: Partial<ArchitectureNode>) => void;
   addEdge: (source: string, target: string) => void;
   removeEdge: (edgeId: string) => void;
 
-  // For "import repo" — loading scanned architecture
+  // Loading
   loadArchitecture: (graph: ArchitectureGraph) => void;
+  setProject: (project: Project) => void;
 
   // React Flow state sync
   setNodes: (nodes: Node[]) => void;
   setEdges: (edges: Edge[]) => void;
 }
 
-export const useCanvasStore = create<CanvasStore>((set) => ({
+function recompute(architecture: ArchitectureGraph | null, path: string) {
+  if (!architecture) return { nodes: [], edges: [] };
+  return convertToReactFlow(architecture, path);
+}
+
+export const useCanvasStore = create<CanvasStore>((set, get) => ({
   project: null,
   architecture: null,
   currentPath: '',
   navigationHistory: [],
   nodes: [],
   edges: [],
+  selectedNodeId: null,
+  hoveredNodeId: null,
 
-  navigateIn: (path) =>
-    set((state) => ({
+  navigateIn: (path) => {
+    const state = get();
+    const { nodes, edges } = recompute(state.architecture, path);
+    set({
       currentPath: path,
       navigationHistory: [...state.navigationHistory, state.currentPath],
-      // TODO: Recompute nodes/edges from architecture at the new path
-    })),
+      nodes,
+      edges,
+      selectedNodeId: null,
+      hoveredNodeId: null,
+    });
+  },
 
-  navigateBack: () =>
-    set((state) => {
-      const history = [...state.navigationHistory];
-      const previousPath = history.pop() ?? '';
-      return {
-        currentPath: previousPath,
-        navigationHistory: history,
-        // TODO: Recompute nodes/edges from architecture at the previous path
-      };
-    }),
+  navigateBack: () => {
+    const state = get();
+    const history = [...state.navigationHistory];
+    const previousPath = history.pop() ?? '';
+    const { nodes, edges } = recompute(state.architecture, previousPath);
+    set({
+      currentPath: previousPath,
+      navigationHistory: history,
+      nodes,
+      edges,
+      selectedNodeId: null,
+      hoveredNodeId: null,
+    });
+  },
 
-  navigateToRoot: () =>
+  navigateToRoot: () => {
+    const state = get();
+    const { nodes, edges } = recompute(state.architecture, '');
     set({
       currentPath: '',
       navigationHistory: [],
-      // TODO: Recompute nodes/edges from architecture at root
-    }),
-
-  addNode: (_node) => {
-    // TODO: Add node to architecture graph and update React Flow nodes
+      nodes,
+      edges,
+      selectedNodeId: null,
+      hoveredNodeId: null,
+    });
   },
 
-  removeNode: (_nodeId) => {
-    // TODO: Remove node from architecture graph and update React Flow nodes
+  navigateTo: (path) => {
+    const state = get();
+    const { nodes, edges } = recompute(state.architecture, path);
+    set({
+      currentPath: path,
+      navigationHistory: [],
+      nodes,
+      edges,
+      selectedNodeId: null,
+      hoveredNodeId: null,
+    });
   },
 
-  updateNode: (_nodeId, _updates) => {
-    // TODO: Update node in architecture graph and update React Flow nodes
+  selectNode: (nodeId) => set({ selectedNodeId: nodeId }),
+  hoverNode: (nodeId) => set({ hoveredNodeId: nodeId }),
+
+  updateNodePosition: (nodeId, position) => {
+    const state = get();
+    // Update React Flow node position
+    const nodes = state.nodes.map((n) =>
+      n.id === nodeId ? { ...n, position } : n
+    );
+    // Also update the ArchitectureNode/FileInfo position in the graph for persistence
+    if (state.architecture) {
+      updatePositionInGraph(state.architecture.root, nodeId, position);
+    }
+    set({ nodes });
   },
 
-  addEdge: (_source, _target) => {
-    // TODO: Add edge to architecture graph and update React Flow edges
-  },
+  addNode: (_node) => { /* TODO: design-from-scratch mode */ },
+  removeNode: (_nodeId) => { /* TODO */ },
+  updateNode: (_nodeId, _updates) => { /* TODO */ },
+  addEdge: (_source, _target) => { /* TODO */ },
+  removeEdge: (_edgeId) => { /* TODO */ },
 
-  removeEdge: (_edgeId) => {
-    // TODO: Remove edge from architecture graph and update React Flow edges
-  },
-
-  loadArchitecture: (graph) =>
+  loadArchitecture: (graph) => {
+    const { nodes, edges } = recompute(graph, '');
     set({
       architecture: graph,
       currentPath: '',
       navigationHistory: [],
-      // TODO: Convert root-level ArchitectureNodes to React Flow nodes/edges
-    }),
+      nodes,
+      edges,
+      selectedNodeId: null,
+      hoveredNodeId: null,
+    });
+  },
 
+  setProject: (project) => set({ project }),
   setNodes: (nodes) => set({ nodes }),
   setEdges: (edges) => set({ edges }),
 }));
+
+function updatePositionInGraph(
+  node: ArchitectureNode,
+  targetId: string,
+  position: { x: number; y: number }
+): void {
+  if (node.id === targetId) {
+    node.position = position;
+    return;
+  }
+  for (const file of node.files) {
+    if (file.path === targetId) {
+      file.position = position;
+      return;
+    }
+  }
+  for (const child of node.children) {
+    updatePositionInGraph(child, targetId, position);
+  }
+}

@@ -1,13 +1,15 @@
 import fs from 'fs';
 import path from 'path';
-import { Project as TsMorphProject } from 'ts-morph';
+import { globSync } from 'glob';
+import { Project as TsMorphProject, SyntaxKind } from 'ts-morph';
 import type {
   ArchitectureGraph,
   ArchitectureNode,
   FileInfo,
   ImportInfo,
+  ImportKind,
+  ReExportInfo,
   FlowEdge,
-  FolderEdges,
   NodeMetadata,
   ExecutionContext,
   SkippedImport,
@@ -23,35 +25,37 @@ export async function scanRepository(
   repoUrl: string,
   branch: string
 ): Promise<ArchitectureGraph> {
-  const timers: Record<string, number> = {};
   const start = Date.now();
 
   // Phase A: ts-morph extraction
-  timers.extractStart = Date.now();
+  const t0 = Date.now();
   const { fileEntries, skippedImports, flatImports } = extractWithTsMorph(repoPath);
-  timers.extractEnd = Date.now();
+  const t1 = Date.now();
 
-  log(`Extraction: ${fileEntries.length} files, ${flatImports.length} internal imports, ${skippedImports.length} skipped imports (${ms(timers.extractEnd - timers.extractStart)})`);
+  // Log import kind breakdown
+  const kindCounts: Record<string, number> = {};
+  for (const fi of flatImports) {
+    kindCounts[fi.kind] = (kindCounts[fi.kind] || 0) + 1;
+  }
+  const kindSummary = Object.entries(kindCounts).map(([k, v]) => `${v} ${k}`).join(', ');
+  log(`Extraction: ${fileEntries.length} files, ${flatImports.length} imports [${kindSummary}], ${skippedImports.length} skipped (${ms(t1 - t0)})`);
 
   // Phase B: build tree
-  timers.treeStart = Date.now();
+  const t2 = Date.now();
   const root = buildTree(fileEntries);
-  timers.treeEnd = Date.now();
-
-  const folderCount = countFolders(root);
-  log(`Tree: ${folderCount} folder nodes (${ms(timers.treeEnd - timers.treeStart)})`);
+  const t3 = Date.now();
+  log(`Tree: ${countFolders(root)} folder nodes (${ms(t3 - t2)})`);
 
   // Phase C: edge aggregation
-  timers.edgeStart = Date.now();
+  const t4 = Date.now();
   const allEdges = aggregateEdges(root, flatImports);
-  timers.edgeEnd = Date.now();
-
-  log(`Edges: ${allEdges.length} file-level edges (${ms(timers.edgeEnd - timers.edgeStart)})`);
+  const t5 = Date.now();
+  log(`Edges: ${allEdges.length} file-level edges (${ms(t5 - t4)})`);
   log(`Total scan: ${ms(Date.now() - start)}`);
 
   const now = new Date().toISOString();
   return {
-    projectId: '', // caller sets this
+    projectId: '',
     repoUrl,
     branch,
     scannedAt: now,
@@ -66,18 +70,12 @@ export async function scanRepository(
 // Phase A: ts-morph extraction
 // ============================================================
 
-interface RawFileData {
-  relativePath: string;
-  imports: ImportInfo[];
-  exports: string[];
-  directives: string[];
-  loc: number;
-}
-
 interface FlatImport {
   fromFile: string;
   toFile: string;
   specifiers: string[];
+  kind: ImportKind;
+  isDataFlow: boolean;
 }
 
 function extractWithTsMorph(repoPath: string): {
@@ -85,26 +83,58 @@ function extractWithTsMorph(repoPath: string): {
   skippedImports: SkippedImport[];
   flatImports: FlatImport[];
 } {
-  const tsConfigPath = path.join(repoPath, 'tsconfig.json');
-  const hasTsConfig = fs.existsSync(tsConfigPath);
+  // Find all tsconfig.json files in the repo (monorepo support)
+  const tsConfigs = globSync('**/tsconfig.json', {
+    cwd: repoPath,
+    ignore: ['**/node_modules/**', '**/.next/**', '**/dist/**'],
+  });
 
-  let project: TsMorphProject;
-  if (hasTsConfig) {
-    log(`Using tsconfig.json for import resolution`);
-    project = new TsMorphProject({
-      tsConfigFilePath: tsConfigPath,
-      skipAddingFilesFromTsConfig: false,
-    });
+  const project = new TsMorphProject({
+    compilerOptions: { allowJs: true, jsx: 1 /* Preserve */ },
+    skipAddingFilesFromTsConfig: true,
+  });
+
+  if (tsConfigs.length > 0) {
+    log(`Found ${tsConfigs.length} tsconfig(s): ${tsConfigs.join(', ')}`);
+    for (const tc of tsConfigs) {
+      const tcAbsolute = path.join(repoPath, tc);
+      try {
+        const subProject = new TsMorphProject({
+          tsConfigFilePath: tcAbsolute,
+          skipAddingFilesFromTsConfig: false,
+        });
+        for (const sf of subProject.getSourceFiles()) {
+          const rel = path.relative(repoPath, sf.getFilePath());
+          if (!rel.startsWith('..') && !rel.includes('node_modules')) {
+            if (!project.getSourceFile(sf.getFilePath())) {
+              project.addSourceFileAtPath(sf.getFilePath());
+            }
+          }
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        log(`Warning: failed to load ${tc}: ${msg}`);
+      }
+    }
   } else {
     log(`No tsconfig.json found, adding files manually`);
-    project = new TsMorphProject({ compilerOptions: { allowJs: true } });
-    project.addSourceFilesAtPaths(path.join(repoPath, '**/*.{ts,tsx,js,jsx}'));
+  }
+
+  // Also add loose source files not covered by tsconfigs
+  const allSourcePaths = globSync('**/*.{ts,tsx,js,jsx}', {
+    cwd: repoPath,
+    ignore: ['**/node_modules/**', '**/.next/**', '**/dist/**', '**/build/**', '**/.git/**'],
+    absolute: true,
+  });
+  for (const absPath of allSourcePaths) {
+    if (!project.getSourceFile(absPath)) {
+      try { project.addSourceFileAtPath(absPath); } catch { /* skip */ }
+    }
   }
 
   const sourceFiles = project.getSourceFiles();
-  log(`ts-morph found ${sourceFiles.length} source files`);
+  log(`ts-morph loaded ${sourceFiles.length} source files total`);
 
-  // Filter and extract
   const fileEntries: FileEntry[] = [];
   const skippedImports: SkippedImport[] = [];
   const flatImports: FlatImport[] = [];
@@ -114,7 +144,6 @@ function extractWithTsMorph(repoPath: string): {
     const absolutePath = sourceFile.getFilePath();
     const relativePath = path.relative(repoPath, absolutePath).replace(/\\/g, '/');
 
-    // Skip non-source directories
     if (
       relativePath.includes('node_modules') ||
       relativePath.includes('.next') ||
@@ -122,50 +151,39 @@ function extractWithTsMorph(repoPath: string): {
       relativePath.includes('build/') ||
       relativePath.includes('.git/') ||
       relativePath.startsWith('.')
-    ) {
-      continue;
-    }
+    ) continue;
 
     filteredCount++;
-
-    // Safety check
     if (filteredCount > 5000) {
-      throw new Error(
-        `Repository has more than 5000 source files (limit: 5000). Consider scanning a subdirectory.`
-      );
+      throw new Error(`Repository has more than 5000 source files (limit: 5000).`);
     }
 
     try {
-      const raw = extractFileData(sourceFile, repoPath, relativePath);
+      const extracted = extractFileData(sourceFile, repoPath, relativePath);
 
       // Build flat imports for edge aggregation
-      for (const imp of raw.imports) {
+      for (const imp of extracted.imports) {
         flatImports.push({
-          fromFile: raw.relativePath,
+          fromFile: relativePath,
           toFile: imp.resolvedPath,
           specifiers: imp.specifiers,
+          kind: imp.kind,
+          isDataFlow: imp.isDataFlow,
         });
       }
 
-      // Track skipped imports
+      // Track skipped imports (unresolved path-like imports)
       for (const importDecl of sourceFile.getImportDeclarations()) {
         const moduleSpec = importDecl.getModuleSpecifierValue();
         const resolved = importDecl.getModuleSpecifierSourceFile();
-        if (!resolved) {
-          // Only track non-package imports (ones that look like paths or aliases)
-          if (moduleSpec.startsWith('.') || moduleSpec.startsWith('@/') || moduleSpec.startsWith('~/')) {
-            skippedImports.push({
-              sourceFile: relativePath,
-              importPath: moduleSpec,
-            });
-          }
+        if (!resolved && (moduleSpec.startsWith('.') || moduleSpec.startsWith('@/') || moduleSpec.startsWith('~/'))) {
+          skippedImports.push({ sourceFile: relativePath, importPath: moduleSpec });
         }
       }
 
-      // Classify and build FileInfo
-      const { type, executionContext } = classifyFile(relativePath, raw.directives);
+      const { type, executionContext } = classifyFile(relativePath, extracted.directives);
       const name = path.basename(relativePath);
-      const displayName = deriveFileDisplayName(relativePath, raw.exports, type);
+      const displayName = deriveFileDisplayName(relativePath, extracted.exports, type);
 
       fileEntries.push({
         relativePath,
@@ -175,130 +193,232 @@ function extractWithTsMorph(repoPath: string): {
           displayName,
           type,
           executionContext,
-          loc: raw.loc,
-          exports: raw.exports,
-          imports: raw.imports,
+          loc: extracted.loc,
+          exports: extracted.exports,
+          imports: extracted.imports,
+          reExports: extracted.reExports,
           isManual: false,
         },
       });
     } catch (err) {
-      // If a file can't be parsed, skip it
       const msg = err instanceof Error ? err.message : String(err);
       log(`Warning: skipping ${relativePath}: ${msg}`);
     }
   }
 
   log(`${filteredCount} files after filtering`);
-
   return { fileEntries, skippedImports, flatImports };
 }
 
 function extractFileData(
   sourceFile: ReturnType<TsMorphProject['getSourceFiles']>[number],
   repoPath: string,
-  relativePath: string
-): RawFileData {
-  // 1. Imports — only internal (resolved to project files)
+  _relativePath: string
+): {
+  imports: ImportInfo[];
+  exports: string[];
+  reExports: ReExportInfo[];
+  directives: string[];
+  loc: number;
+} {
   const imports: ImportInfo[] = [];
+  const reExports: ReExportInfo[] = [];
+
+  // ---- 1. ES6 import declarations ----
   for (const importDecl of sourceFile.getImportDeclarations()) {
     const moduleSpecifier = importDecl.getModuleSpecifierValue();
     const resolvedSourceFile = importDecl.getModuleSpecifierSourceFile();
 
-    if (resolvedSourceFile) {
-      const resolvedRelative = path.relative(repoPath, resolvedSourceFile.getFilePath()).replace(/\\/g, '/');
+    if (!resolvedSourceFile) continue;
 
-      // Skip if resolved to node_modules or outside the repo
-      if (resolvedRelative.includes('node_modules') || resolvedRelative.startsWith('..')) {
-        continue;
-      }
+    const resolvedRelative = path.relative(repoPath, resolvedSourceFile.getFilePath()).replace(/\\/g, '/');
+    if (resolvedRelative.includes('node_modules') || resolvedRelative.startsWith('..')) continue;
 
-      const specifiers = importDecl.getNamedImports().map((n) => n.getName());
-      const defaultImport = importDecl.getDefaultImport()?.getText();
-      if (defaultImport) {
-        specifiers.unshift(defaultImport);
-      }
+    const specifiers = importDecl.getNamedImports().map((n) => n.getName());
+    const defaultImport = importDecl.getDefaultImport()?.getText();
+    if (defaultImport) specifiers.unshift(defaultImport);
 
-      imports.push({
-        source: moduleSpecifier,
-        resolvedPath: resolvedRelative,
-        specifiers,
-      });
+    // Classify the import
+    let kind: ImportKind;
+    let isDataFlow: boolean;
+
+    if (importDecl.isTypeOnly()) {
+      kind = 'type-only';
+      isDataFlow = false;
+    } else if (specifiers.length === 0 && !defaultImport) {
+      kind = 'side-effect';
+      isDataFlow = false;
+    } else {
+      kind = 'static';
+      isDataFlow = true;
     }
+
+    imports.push({
+      source: moduleSpecifier,
+      resolvedPath: resolvedRelative,
+      specifiers,
+      kind,
+      isDataFlow,
+    });
   }
 
-  // 2. Exports
+  // ---- 2. Dynamic imports: import('./path') ----
+  try {
+    for (const callExpr of sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+      const exprText = callExpr.getExpression().getText();
+      if (exprText !== 'import') continue;
+
+      const args = callExpr.getArguments();
+      if (args.length === 0) continue;
+
+      const argText = args[0].getText().replace(/['"]/g, '');
+      // Try to resolve relative to the source file's directory
+      if (!argText.startsWith('.') && !argText.startsWith('@/') && !argText.startsWith('~/')) continue;
+
+      // Attempt resolution by checking if a matching file exists in the project
+      const sourceDir = path.dirname(sourceFile.getFilePath());
+      const candidates = [argText, argText + '.ts', argText + '.tsx', argText + '/index.ts', argText + '/index.tsx'];
+      let resolved: string | null = null;
+
+      for (const candidate of candidates) {
+        const fullPath = path.resolve(sourceDir, candidate);
+        if (sourceFile.getProject().getSourceFile(fullPath)) {
+          resolved = path.relative(repoPath, fullPath).replace(/\\/g, '/');
+          break;
+        }
+      }
+
+      if (resolved && !resolved.includes('node_modules') && !resolved.startsWith('..')) {
+        imports.push({
+          source: argText,
+          resolvedPath: resolved,
+          specifiers: ['*dynamic*'],
+          kind: 'dynamic',
+          isDataFlow: true,
+        });
+      }
+    }
+  } catch {
+    // AST traversal can fail on malformed files — skip silently
+  }
+
+  // ---- 3. CommonJS require() ----
+  try {
+    for (const callExpr of sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+      const exprText = callExpr.getExpression().getText();
+      if (exprText !== 'require') continue;
+
+      const args = callExpr.getArguments();
+      if (args.length === 0) continue;
+
+      const argText = args[0].getText().replace(/['"]/g, '');
+      if (!argText.startsWith('.') && !argText.startsWith('@/') && !argText.startsWith('~/')) continue;
+
+      const sourceDir = path.dirname(sourceFile.getFilePath());
+      const candidates = [argText, argText + '.ts', argText + '.js', argText + '/index.ts', argText + '/index.js'];
+      let resolved: string | null = null;
+
+      for (const candidate of candidates) {
+        const fullPath = path.resolve(sourceDir, candidate);
+        if (sourceFile.getProject().getSourceFile(fullPath)) {
+          resolved = path.relative(repoPath, fullPath).replace(/\\/g, '/');
+          break;
+        }
+      }
+
+      if (resolved && !resolved.includes('node_modules') && !resolved.startsWith('..')) {
+        imports.push({
+          source: argText,
+          resolvedPath: resolved,
+          specifiers: ['*require*'],
+          kind: 'commonjs',
+          isDataFlow: true,
+        });
+      }
+    }
+  } catch {
+    // skip
+  }
+
+  // ---- 4. Re-exports: export { x } from './module' / export * from './module' ----
+  for (const exportDecl of sourceFile.getExportDeclarations()) {
+    const moduleSpecifier = exportDecl.getModuleSpecifierValue();
+    if (!moduleSpecifier) continue;
+
+    const resolvedSourceFile = exportDecl.getModuleSpecifierSourceFile();
+    if (!resolvedSourceFile) continue;
+
+    const resolvedRelative = path.relative(repoPath, resolvedSourceFile.getFilePath()).replace(/\\/g, '/');
+    if (resolvedRelative.includes('node_modules') || resolvedRelative.startsWith('..')) continue;
+
+    const namedExports = exportDecl.getNamedExports();
+    const specifiers = namedExports.length > 0
+      ? namedExports.map((n) => n.getName())
+      : ['*'];
+
+    reExports.push({
+      source: moduleSpecifier,
+      resolvedPath: resolvedRelative,
+      specifiers,
+    });
+
+    // Also track as an import for edge aggregation
+    imports.push({
+      source: moduleSpecifier,
+      resolvedPath: resolvedRelative,
+      specifiers,
+      kind: 're-export',
+      isDataFlow: true,
+    });
+  }
+
+  // ---- 5. Exports ----
   const exports: string[] = [];
   for (const [name] of sourceFile.getExportedDeclarations()) {
-    if (name !== 'default') {
-      exports.push(name);
-    }
+    if (name !== 'default') exports.push(name);
   }
-  if (sourceFile.getDefaultExportSymbol()) {
-    exports.push('default');
-  }
+  if (sourceFile.getDefaultExportSymbol()) exports.push('default');
 
-  // 3. Directives
+  // ---- 6. Directives ----
   const fullText = sourceFile.getFullText();
   const firstLines = fullText.split('\n').slice(0, 5).join('\n');
   const directives: string[] = [];
-  if (firstLines.includes("'use client'") || firstLines.includes('"use client"')) {
-    directives.push('use client');
-  }
-  if (firstLines.includes("'use server'") || firstLines.includes('"use server"')) {
-    directives.push('use server');
-  }
+  if (firstLines.includes("'use client'") || firstLines.includes('"use client"')) directives.push('use client');
+  if (firstLines.includes("'use server'") || firstLines.includes('"use server"')) directives.push('use server');
 
-  // 4. LOC
+  // ---- 7. LOC ----
   const loc = sourceFile.getEndLineNumber();
 
-  return { relativePath, imports, exports, directives, loc };
+  return { imports, exports, reExports, directives, loc };
 }
 
 // ============================================================
 // Display name derivation
 // ============================================================
 
-function deriveFileDisplayName(
-  filePath: string,
-  exports: string[],
-  type: string
-): string {
+function deriveFileDisplayName(filePath: string, exports: string[], type: string): string {
   const basename = path.basename(filePath);
   const nameNoExt = basename.replace(/\.(tsx?|jsx?|mjs|cjs)$/, '');
   const parentDir = path.basename(path.dirname(filePath));
 
   switch (type) {
-    case 'page':
-      return titleCase(parentDir === 'app' ? 'Home' : parentDir) + ' Page';
-    case 'layout':
-      return titleCase(parentDir === 'app' ? 'Root' : parentDir) + ' Layout';
-    case 'loading':
-      return titleCase(parentDir) + ' Loading';
-    case 'error':
-      return titleCase(parentDir) + ' Error';
-    case 'api-route':
-      return titleCase(parentDir) + ' API';
-    case 'hook': {
-      const primary = exports.find((e) => e !== 'default' && e.startsWith('use'));
-      return primary ?? nameNoExt;
-    }
-    case 'component': {
-      const primary = exports.find((e) => e !== 'default' && /^[A-Z]/.test(e));
-      return primary ?? titleCase(nameNoExt);
-    }
-    default:
-      return nameNoExt;
+    case 'page': return titleCase(parentDir === 'app' ? 'Home' : parentDir) + ' Page';
+    case 'layout': return titleCase(parentDir === 'app' ? 'Root' : parentDir) + ' Layout';
+    case 'loading': return titleCase(parentDir) + ' Loading';
+    case 'error': return titleCase(parentDir) + ' Error';
+    case 'api-route': return titleCase(parentDir) + ' API';
+    case 'hook': return exports.find((e) => e !== 'default' && e.startsWith('use')) ?? nameNoExt;
+    case 'component': return exports.find((e) => e !== 'default' && /^[A-Z]/.test(e)) ?? titleCase(nameNoExt);
+    default: return nameNoExt;
   }
 }
 
 function deriveFolderDisplayName(name: string): string {
-  // Handle Next.js special folders
   if (name.startsWith('[') || name.startsWith('(')) return name;
   return name.charAt(0).toUpperCase() + name.slice(1);
 }
 
 function titleCase(str: string): string {
-  // Handle kebab-case, snake_case, and bracket patterns
   return str
     .replace(/[-_]/g, ' ')
     .replace(/\[([^\]]+)\]/g, '$1')
@@ -309,7 +429,7 @@ function titleCase(str: string): string {
 }
 
 // ============================================================
-// Phase B: tree builder (augmented from original)
+// Phase B: tree builder
 // ============================================================
 
 interface FileEntry {
@@ -325,6 +445,12 @@ function buildTree(fileEntries: FileEntry[]): ArchitectureNode {
     const key = dir === '.' ? '' : dir;
     if (!dirMap.has(key)) dirMap.set(key, []);
     dirMap.get(key)!.push(info);
+
+    const parts = key.split('/');
+    for (let i = 1; i < parts.length; i++) {
+      const ancestor = parts.slice(0, i).join('/');
+      if (!dirMap.has(ancestor)) dirMap.set(ancestor, []);
+    }
   }
 
   const root = buildNode('', 'root', dirMap);
@@ -333,14 +459,9 @@ function buildTree(fileEntries: FileEntry[]): ArchitectureNode {
   return root;
 }
 
-function buildNode(
-  dirPath: string,
-  name: string,
-  dirMap: Map<string, FileInfo[]>
-): ArchitectureNode {
+function buildNode(dirPath: string, name: string, dirMap: Map<string, FileInfo[]>): ArchitectureNode {
   const files = dirMap.get(dirPath) ?? [];
 
-  // Find immediate child directories
   const childDirs = new Set<string>();
   for (const key of dirMap.keys()) {
     if (key === dirPath) continue;
@@ -355,21 +476,17 @@ function buildNode(
     const childName = dirPath ? childDir.slice(dirPath.length + 1) : childDir;
     children.push(buildNode(childDir, childName, dirMap));
   }
-
   children.sort((a, b) => a.name.localeCompare(b.name));
-
-  const metadata = computeMetadata(files, children);
-  const executionContext = computeExecutionContext(files, children);
 
   return {
     id: dirPath || 'root',
     name,
     displayName: deriveFolderDisplayName(name),
     type: 'folder',
-    executionContext,
+    executionContext: computeExecutionContext(files, children),
     children,
     files,
-    metadata,
+    metadata: computeMetadata(files, children),
     isManual: false,
   };
 }
@@ -378,9 +495,7 @@ function computeMetadata(files: FileInfo[], children: ArchitectureNode[]): NodeM
   let totalFiles = files.length;
   let totalLoc = files.reduce((sum, f) => sum + f.loc, 0);
   let clientFileCount = files.filter((f) => f.executionContext === 'client').length;
-  let serverFileCount = files.filter(
-    (f) => f.executionContext === 'server' || f.executionContext === 'api'
-  ).length;
+  let serverFileCount = files.filter((f) => f.executionContext === 'server' || f.executionContext === 'api').length;
 
   for (const child of children) {
     totalFiles += child.metadata.totalFiles;
@@ -392,19 +507,12 @@ function computeMetadata(files: FileInfo[], children: ArchitectureNode[]): NodeM
   return { totalFiles, totalLoc, clientFileCount, serverFileCount };
 }
 
-function computeExecutionContext(
-  files: FileInfo[],
-  children: ArchitectureNode[]
-): ExecutionContext {
+function computeExecutionContext(files: FileInfo[], children: ArchitectureNode[]): ExecutionContext {
   const contexts = new Set<ExecutionContext>();
   for (const f of files) contexts.add(f.executionContext);
   for (const c of children) {
-    if (c.executionContext === 'mixed') {
-      contexts.add('client');
-      contexts.add('server');
-    } else {
-      contexts.add(c.executionContext);
-    }
+    if (c.executionContext === 'mixed') { contexts.add('client'); contexts.add('server'); }
+    else contexts.add(c.executionContext);
   }
 
   if (contexts.size === 0) return 'unspecified';
@@ -413,7 +521,6 @@ function computeExecutionContext(
   const hasClient = contexts.has('client');
   const hasServer = contexts.has('server') || contexts.has('api') || contexts.has('edge');
   if (hasClient && hasServer) return 'mixed';
-
   return [...contexts][0];
 }
 
@@ -421,177 +528,145 @@ function computeExecutionContext(
 // Phase C: edge aggregator
 // ============================================================
 
+interface EdgeAccum {
+  count: number;
+  dataFlowCount: number;
+  typeOnlyCount: number;
+  hasDynamic: boolean;
+  samples: { from: string; to: string }[];
+}
+
 function aggregateEdges(root: ArchitectureNode, flatImports: FlatImport[]): FlowEdge[] {
-  // Build a map: filePath → which folder path it belongs to at each level
   const fileToAncestors = new Map<string, string[]>();
   collectFilePaths(root, [], fileToAncestors);
+  computeFolderEdges(root, flatImports);
 
-  // Walk tree and compute per-folder edges
-  computeFolderEdges(root, flatImports, fileToAncestors);
-
-  // Build flat edge list (deduplicated file-to-file edges)
-  const edgeMap = new Map<string, FlowEdge>();
+  // Build flat deduplicated edge list
+  const edgeMap = new Map<string, EdgeAccum>();
   for (const imp of flatImports) {
     const key = `${imp.fromFile}|${imp.toFile}`;
     const existing = edgeMap.get(key);
     if (existing) {
-      existing.importCount++;
-      if (existing.samples.length < 3) {
-        existing.samples.push({ from: imp.fromFile, to: imp.toFile });
-      }
+      existing.count++;
+      if (imp.isDataFlow) existing.dataFlowCount++;
+      if (imp.kind === 'type-only') existing.typeOnlyCount++;
+      if (imp.kind === 'dynamic') existing.hasDynamic = true;
+      if (existing.samples.length < 3) existing.samples.push({ from: imp.fromFile, to: imp.toFile });
     } else {
       edgeMap.set(key, {
-        id: `edge-${edgeMap.size}`,
-        source: imp.fromFile,
-        target: imp.toFile,
-        importCount: 1,
+        count: 1,
+        dataFlowCount: imp.isDataFlow ? 1 : 0,
+        typeOnlyCount: imp.kind === 'type-only' ? 1 : 0,
+        hasDynamic: imp.kind === 'dynamic',
         samples: [{ from: imp.fromFile, to: imp.toFile }],
-        isManual: false,
       });
     }
   }
 
-  return Array.from(edgeMap.values());
+  return Array.from(edgeMap.entries()).map(([key, acc], i) => {
+    const [source, target] = key.split('|');
+    return {
+      id: `edge-${i}`,
+      source,
+      target,
+      importCount: acc.count,
+      dataFlowCount: acc.dataFlowCount,
+      typeOnlyCount: acc.typeOnlyCount,
+      hasDynamic: acc.hasDynamic,
+      samples: acc.samples,
+      isManual: false,
+    };
+  });
 }
 
-function collectFilePaths(
-  node: ArchitectureNode,
-  ancestors: string[],
-  result: Map<string, string[]>
-): void {
-  const currentPath = node.id;
-  const currentAncestors = [...ancestors, currentPath];
-
-  for (const file of node.files) {
-    result.set(file.path, currentAncestors);
-  }
-
-  for (const child of node.children) {
-    collectFilePaths(child, currentAncestors, result);
-  }
+function collectFilePaths(node: ArchitectureNode, ancestors: string[], result: Map<string, string[]>): void {
+  const current = [...ancestors, node.id];
+  for (const file of node.files) result.set(file.path, current);
+  for (const child of node.children) collectFilePaths(child, current, result);
 }
 
-function computeFolderEdges(
-  node: ArchitectureNode,
-  flatImports: FlatImport[],
-  fileToAncestors: Map<string, string[]>
-): void {
-  // Only compute for folders with children
-  if (node.children.length === 0 && node.files.length === 0) {
-    return;
-  }
+function computeFolderEdges(node: ArchitectureNode, flatImports: FlatImport[]): void {
+  if (node.children.length === 0 && node.files.length === 0) return;
 
-  // Get all descendant file paths for this folder
   const descendantFiles = new Set<string>();
   collectDescendantFiles(node, descendantFiles);
 
-  // Map: file path → which direct child of this node contains it
   const fileToDirectChild = new Map<string, string>();
   for (const child of node.children) {
-    const childDescendants = new Set<string>();
-    collectDescendantFiles(child, childDescendants);
-    for (const fp of childDescendants) {
-      fileToDirectChild.set(fp, child.id);
-    }
+    const childDesc = new Set<string>();
+    collectDescendantFiles(child, childDesc);
+    for (const fp of childDesc) fileToDirectChild.set(fp, child.id);
   }
-  // Files directly in this folder map to themselves
-  for (const file of node.files) {
-    fileToDirectChild.set(file.path, file.path);
-  }
+  for (const file of node.files) fileToDirectChild.set(file.path, file.path);
 
-  // Aggregate edges
-  const internalMap = new Map<string, { count: number; samples: { from: string; to: string }[] }>();
-  const outboundMap = new Map<string, { count: number; samples: { from: string; to: string }[] }>();
+  const internalMap = new Map<string, EdgeAccum>();
+  const outboundMap = new Map<string, EdgeAccum>();
 
   for (const imp of flatImports) {
-    // Is source a descendant of this folder?
     if (!descendantFiles.has(imp.fromFile)) continue;
-
     const sourceChild = fileToDirectChild.get(imp.fromFile);
     if (!sourceChild) continue;
 
     if (descendantFiles.has(imp.toFile)) {
-      // Target is also a descendant — check if different direct child
       const targetChild = fileToDirectChild.get(imp.toFile);
       if (!targetChild || targetChild === sourceChild) continue;
-
-      // Internal edge
-      const key = `${sourceChild}|${targetChild}`;
-      const existing = internalMap.get(key);
-      if (existing) {
-        existing.count++;
-        if (existing.samples.length < 3) {
-          existing.samples.push({ from: imp.fromFile, to: imp.toFile });
-        }
-      } else {
-        internalMap.set(key, {
-          count: 1,
-          samples: [{ from: imp.fromFile, to: imp.toFile }],
-        });
-      }
+      accumEdge(internalMap, `${sourceChild}|${targetChild}`, imp);
     } else {
-      // Outbound — target is outside this folder
-      // Identify by root-level directory of the target
       const targetRootDir = imp.toFile.split('/')[0];
-      const key = `${sourceChild}|${targetRootDir}`;
-      const existing = outboundMap.get(key);
-      if (existing) {
-        existing.count++;
-        if (existing.samples.length < 3) {
-          existing.samples.push({ from: imp.fromFile, to: imp.toFile });
-        }
-      } else {
-        outboundMap.set(key, {
-          count: 1,
-          samples: [{ from: imp.fromFile, to: imp.toFile }],
-        });
-      }
+      accumEdge(outboundMap, `${sourceChild}|${targetRootDir}`, imp);
     }
   }
 
-  // Convert to FlowEdge arrays
-  let edgeId = 0;
-  const internal: FlowEdge[] = [];
-  for (const [key, data] of internalMap) {
-    const [source, target] = key.split('|');
-    internal.push({
-      id: `${node.id}-internal-${edgeId++}`,
-      source,
-      target,
-      importCount: data.count,
-      samples: data.samples,
-      isManual: false,
+  node.folderEdges = {
+    internal: mapToFlowEdges(internalMap, `${node.id}-int`),
+    outbound: mapToFlowEdges(outboundMap, `${node.id}-out`),
+  };
+
+  for (const child of node.children) computeFolderEdges(child, flatImports);
+}
+
+function accumEdge(map: Map<string, EdgeAccum>, key: string, imp: FlatImport): void {
+  const existing = map.get(key);
+  if (existing) {
+    existing.count++;
+    if (imp.isDataFlow) existing.dataFlowCount++;
+    if (imp.kind === 'type-only') existing.typeOnlyCount++;
+    if (imp.kind === 'dynamic') existing.hasDynamic = true;
+    if (existing.samples.length < 3) existing.samples.push({ from: imp.fromFile, to: imp.toFile });
+  } else {
+    map.set(key, {
+      count: 1,
+      dataFlowCount: imp.isDataFlow ? 1 : 0,
+      typeOnlyCount: imp.kind === 'type-only' ? 1 : 0,
+      hasDynamic: imp.kind === 'dynamic',
+      samples: [{ from: imp.fromFile, to: imp.toFile }],
     });
-  }
-
-  const outbound: FlowEdge[] = [];
-  for (const [key, data] of outboundMap) {
-    const [source, target] = key.split('|');
-    outbound.push({
-      id: `${node.id}-outbound-${edgeId++}`,
-      source,
-      target,
-      importCount: data.count,
-      samples: data.samples,
-      isManual: false,
-    });
-  }
-
-  node.folderEdges = { internal, outbound };
-
-  // Recurse into children
-  for (const child of node.children) {
-    computeFolderEdges(child, flatImports, fileToAncestors);
   }
 }
 
+function mapToFlowEdges(map: Map<string, EdgeAccum>, prefix: string): FlowEdge[] {
+  let i = 0;
+  const edges: FlowEdge[] = [];
+  for (const [key, acc] of map) {
+    const [source, target] = key.split('|');
+    edges.push({
+      id: `${prefix}-${i++}`,
+      source,
+      target,
+      importCount: acc.count,
+      dataFlowCount: acc.dataFlowCount,
+      typeOnlyCount: acc.typeOnlyCount,
+      hasDynamic: acc.hasDynamic,
+      samples: acc.samples,
+      isManual: false,
+    });
+  }
+  return edges;
+}
+
 function collectDescendantFiles(node: ArchitectureNode, result: Set<string>): void {
-  for (const file of node.files) {
-    result.add(file.path);
-  }
-  for (const child of node.children) {
-    collectDescendantFiles(child, result);
-  }
+  for (const file of node.files) result.add(file.path);
+  for (const child of node.children) collectDescendantFiles(child, result);
 }
 
 // ============================================================
@@ -600,9 +675,7 @@ function collectDescendantFiles(node: ArchitectureNode, result: Set<string>): vo
 
 function countFolders(node: ArchitectureNode): number {
   let count = 1;
-  for (const child of node.children) {
-    count += countFolders(child);
-  }
+  for (const child of node.children) count += countFolders(child);
   return count;
 }
 

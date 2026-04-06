@@ -6,6 +6,7 @@ import type {
   ScanResponse,
   ArchitectureGraph,
   GitHubRepo,
+  GitHubContributor,
 } from '@vibeboard/shared';
 
 // All requests go through the Next.js API proxy at /api/proxy/*
@@ -34,6 +35,18 @@ export async function createProject(req: CreateProjectRequest): Promise<Project>
 export async function getProject(id: string): Promise<Project> {
   const { data } = await api.get(`/projects/${id}`);
   return data.data;
+}
+
+export async function updateProject(
+  id: string,
+  updates: { name?: string; contributors?: { name: string; email: string }[] }
+): Promise<Project> {
+  const { data } = await api.patch(`/projects/${id}`, updates);
+  return data.data;
+}
+
+export async function deleteProject(id: string): Promise<void> {
+  await api.delete(`/projects/${id}`);
 }
 
 export async function scanRepo(req: ScanRequest): Promise<ScanResponse> {
@@ -65,6 +78,11 @@ export async function listGitHubRepos(): Promise<GitHubRepo[]> {
 
 export async function listBranches(owner: string, repo: string): Promise<string[]> {
   const { data } = await api.get(`/github/repos/${owner}/${repo}/branches`);
+  return data.data;
+}
+
+export async function listContributors(owner: string, repo: string): Promise<GitHubContributor[]> {
+  const { data } = await api.get(`/github/repos/${owner}/${repo}/contributors`);
   return data.data;
 }
 

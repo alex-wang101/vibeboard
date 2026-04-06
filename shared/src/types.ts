@@ -68,13 +68,31 @@ export interface FileInfo {
   loc: number;
   exports: string[];
   imports: ImportInfo[];
+  reExports: ReExportInfo[];  // Re-exports this file passes through (barrel files)
   isManual: boolean;          // true if user-created placeholder
+  position?: { x: number; y: number }; // Canvas position for file nodes
 }
+
+export type ImportKind =
+  | 'static'        // import { x } from — standard ES6, runtime data flow
+  | 'type-only'     // import type { x } from — erased at compile time
+  | 'dynamic'       // import('./path') — lazy/code-split, deferred data flow
+  | 'commonjs'      // require('./path') — CJS runtime
+  | 'side-effect'   // import './styles' — no specifiers, just execution
+  | 're-export';    // export { x } from / export * from — pass-through
 
 export interface ImportInfo {
   source: string;             // Import path as written in code
   resolvedPath: string;       // Resolved to actual file
   specifiers: string[];       // Named imports: ['useState', 'useEffect']
+  kind: ImportKind;           // Classification of this import
+  isDataFlow: boolean;        // true if runtime data movement (static/dynamic/commonjs/re-export)
+}
+
+export interface ReExportInfo {
+  source: string;             // Module specifier as written
+  resolvedPath: string;       // Resolved to actual file
+  specifiers: string[];       // Specific names, or ['*'] for star re-export
 }
 
 export interface NodeMetadata {
@@ -91,6 +109,9 @@ export interface FlowEdge {
   source: string;             // Source node ID
   target: string;             // Target node ID
   importCount: number;
+  dataFlowCount: number;      // Imports that are actual runtime data flow
+  typeOnlyCount: number;      // Type-only imports (erased at compile time)
+  hasDynamic: boolean;        // Any dynamic imports in this edge?
   samples: { from: string; to: string }[];
   isManual: boolean;          // true if user drew this edge, false if from scanning
   label?: string;             // User or AI annotation: "auth check", "data fetch"
@@ -141,6 +162,11 @@ export const NEXTJS_PALETTE: PaletteItem[] = [
 // API TYPES
 // ============================================================
 
+export interface ProjectContributor {
+  name: string;
+  email: string;
+}
+
 export interface Project {
   id: string;
   name: string;
@@ -148,6 +174,7 @@ export interface Project {
   repoUrl: string | null;
   defaultBranch: string | null;
   lastScannedAt: string | null;
+  contributors: ProjectContributor[];
   createdAt: string;
   updatedAt: string;
   userId: string;             // GitHub user ID
@@ -158,6 +185,15 @@ export interface CreateProjectRequest {
   source: 'scratch' | 'github';
   repoUrl?: string;
   branch?: string;
+  contributors?: ProjectContributor[];
+}
+
+export interface GitHubContributor {
+  login: string;
+  avatarUrl: string;
+  contributions: number;
+  name?: string | null;
+  email?: string | null;
 }
 
 export interface ScanRequest {

@@ -3,7 +3,7 @@ import simpleGit from 'simple-git';
 import path from 'path';
 import fs from 'fs/promises';
 import crypto from 'crypto';
-import type { GitHubRepo } from '@vibeboard/shared';
+import type { GitHubRepo, GitHubContributor } from '@vibeboard/shared';
 
 const CLONE_DIR = path.resolve(process.env.CLONE_DIR || './tmp/repos');
 
@@ -69,4 +69,47 @@ export async function cloneRepository(
 
 export async function cleanupClone(clonePath: string): Promise<void> {
   await fs.rm(clonePath, { recursive: true, force: true });
+}
+
+export async function listContributors(
+  owner: string,
+  repo: string,
+  token: string
+): Promise<GitHubContributor[]> {
+  const octokit = new Octokit({ auth: token });
+  const { data } = await octokit.repos.listContributors({
+    owner,
+    repo,
+    per_page: 20,
+  });
+
+  // Filter out bots, then enrich with profile data for name/email
+  const users = (data ?? []).filter((c) => c.type === 'User').slice(0, 20);
+
+  const contributors: GitHubContributor[] = await Promise.all(
+    users.map(async (c) => {
+      const profile = await getUserProfile(c.login!, token).catch(() => ({
+        name: null,
+        email: null,
+      }));
+      return {
+        login: c.login!,
+        avatarUrl: c.avatar_url!,
+        contributions: c.contributions,
+        name: profile.name,
+        email: profile.email,
+      };
+    })
+  );
+
+  return contributors;
+}
+
+async function getUserProfile(
+  login: string,
+  token: string
+): Promise<{ name: string | null; email: string | null }> {
+  const octokit = new Octokit({ auth: token });
+  const { data } = await octokit.users.getByUsername({ username: login });
+  return { name: data.name ?? null, email: data.email ?? null };
 }

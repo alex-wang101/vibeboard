@@ -34,6 +34,6 @@ tmp/
 
 # all nested node_modules
 node_modules/
-
+CLAUDE.md
 # dist
 dist/

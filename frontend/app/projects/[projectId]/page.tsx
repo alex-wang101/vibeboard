@@ -1,14 +1,23 @@
 'use client';
 
 import { useEffect, useState, use } from 'react';
+import { ReactFlowProvider } from 'reactflow';
 import { getArchitecture, getProject } from '@/lib/api';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Button } from '@/components/ui/button';
+import { useCanvasStore } from '@/stores/canvas-store';
+import { ArchitectureCanvas } from '@/components/canvas/architecture-canvas';
+import { BreadcrumbNav } from '@/components/canvas/breadcrumb-nav';
+import { DetailPanel } from '@/components/canvas/detail-panel';
+import { NodePalette } from '@/components/canvas/node-palette';
 import { Spinner } from '@/components/ui/spinner';
+import { Button } from '@/components/ui/button';
+import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { DebugTree } from '@/components/debug/debug-tree';
 import { DebugEdges } from '@/components/debug/debug-edges';
 import { DebugStats } from '@/components/debug/debug-stats';
-import type { ArchitectureGraph, Project } from '@vibeboard/shared';
+import { Bug } from 'lucide-react';
+import type { ArchitectureGraph } from '@vibeboard/shared';
+import '@/app/reactflow-overrides.css';
 
 export default function ProjectCanvasPage({
   params,
@@ -16,25 +25,29 @@ export default function ProjectCanvasPage({
   params: Promise<{ projectId: string }>;
 }) {
   const { projectId } = use(params);
-  const [graph, setGraph] = useState<ArchitectureGraph | null>(null);
-  const [project, setProject] = useState<Project | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
+  const [graph, setGraph] = useState<ArchitectureGraph | null>(null);
+
+  const loadArchitecture = useCanvasStore((s) => s.loadArchitecture);
+  const setProject = useCanvasStore((s) => s.setProject);
+  const selectedNodeId = useCanvasStore((s) => s.selectedNodeId);
+  const project = useCanvasStore((s) => s.project);
 
   useEffect(() => {
     Promise.all([getArchitecture(projectId), getProject(projectId)])
       .then(([arch, proj]) => {
         setGraph(arch);
         setProject(proj);
+        if (arch) loadArchitecture(arch);
       })
       .catch((err) => setError(err.message ?? 'Failed to load'))
       .finally(() => setLoading(false));
-  }, [projectId]);
+  }, [projectId, loadArchitecture, setProject]);
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-screen bg-black">
+      <div className="flex items-center justify-center h-screen bg-[#0a0a0f]">
         <Spinner className="h-6 w-6 text-white/40" />
       </div>
     );
@@ -42,87 +55,88 @@ export default function ProjectCanvasPage({
 
   if (error || !graph) {
     return (
-      <div className="flex flex-col items-center justify-center h-screen bg-black gap-4">
-        <p className="text-red-400 text-sm font-mono">{error ?? 'No architecture data found'}</p>
-        <p className="text-white/30 text-xs">
-          Try scanning the repository from the project creation page.
-        </p>
+      <div className="flex flex-col items-center justify-center h-screen bg-[#0a0a0f] gap-4">
+        <p className="text-red-400 text-sm font-mono">{error ?? 'No architecture data'}</p>
+        <p className="text-white/30 text-xs">Scan the repository first.</p>
       </div>
     );
   }
 
-  function handleCopy() {
-    navigator.clipboard.writeText(JSON.stringify(graph, null, 2));
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  }
-
   return (
-    <div className="min-h-screen bg-black text-white">
-      {/* Header */}
-      <div className="border-b border-white/10 px-6 py-3 flex items-center justify-between">
-        <div>
-          <h1 className="font-serif text-lg font-bold">
-            {project?.name ?? 'Project'} — Debug Panel
-          </h1>
-          <p className="text-white/30 text-xs font-mono">
-            {graph.repoUrl} @ {graph.branch}
-          </p>
-        </div>
-        <div className="text-white/20 text-xs font-mono">
-          {graph.root.metadata.totalFiles} files | {graph.root.metadata.totalLoc.toLocaleString()} LOC
-        </div>
-      </div>
+    <ReactFlowProvider>
+      <div className="h-screen flex flex-col bg-[#0a0a0f] text-white">
+        {/* Top bar */}
+        <div className="flex items-center justify-between px-4 py-2 border-b border-white/10 bg-black/40 shrink-0">
+          <div className="flex items-center gap-3">
+            <span className="text-white/80 text-sm font-medium">
+              {project?.name ?? 'Project'}
+            </span>
+            {project?.repoUrl && (
+              <span className="text-white/20 text-xs font-mono">
+                {project.repoUrl.replace('https://github.com/', '')}
+              </span>
+            )}
+          </div>
 
-      {/* Tabs */}
-      <div className="px-6 py-4">
-        <Tabs defaultValue="tree">
-          <TabsList className="bg-white/5 border border-white/10">
-            <TabsTrigger value="tree" className="text-xs data-[state=active]:bg-white/10 data-[state=active]:text-white">
-              Tree
-            </TabsTrigger>
-            <TabsTrigger value="edges" className="text-xs data-[state=active]:bg-white/10 data-[state=active]:text-white">
-              Edges
-            </TabsTrigger>
-            <TabsTrigger value="json" className="text-xs data-[state=active]:bg-white/10 data-[state=active]:text-white">
-              Raw JSON
-            </TabsTrigger>
-            <TabsTrigger value="stats" className="text-xs data-[state=active]:bg-white/10 data-[state=active]:text-white">
-              Stats
-            </TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="tree" className="mt-4">
-            <div className="max-h-[calc(100vh-180px)] overflow-y-auto rounded-lg border border-white/10 bg-white/[0.02] p-4">
-              <DebugTree root={graph.root} />
-            </div>
-          </TabsContent>
-
-          <TabsContent value="edges" className="mt-4">
-            <DebugEdges graph={graph} />
-          </TabsContent>
-
-          <TabsContent value="json" className="mt-4">
-            <div className="flex justify-end mb-2">
+          {/* Debug toggle */}
+          <Sheet>
+            <SheetTrigger asChild>
               <Button
-                onClick={handleCopy}
-                variant="outline"
+                variant="ghost"
                 size="sm"
-                className="text-xs border-white/10 text-white/60 hover:text-white hover:bg-white/10"
+                className="text-white/30 hover:text-white/60 hover:bg-white/5 gap-1.5"
               >
-                {copied ? 'Copied!' : 'Copy JSON'}
+                <Bug className="h-3.5 w-3.5" />
+                <span className="text-xs">Debug</span>
               </Button>
-            </div>
-            <pre className="max-h-[calc(100vh-220px)] overflow-auto rounded-lg border border-white/10 bg-white/[0.02] p-4 text-[11px] text-white/50 font-mono whitespace-pre">
-              {JSON.stringify(graph, null, 2)}
-            </pre>
-          </TabsContent>
+            </SheetTrigger>
+            <SheetContent
+              side="bottom"
+              className="bg-[#0a0a0f] border-white/10 text-white h-[60vh]"
+            >
+              <Tabs defaultValue="tree" className="h-full flex flex-col">
+                <TabsList className="bg-white/5 border border-white/10 shrink-0">
+                  <TabsTrigger value="tree" className="text-xs data-[state=active]:bg-white/10 data-[state=active]:text-white">Tree</TabsTrigger>
+                  <TabsTrigger value="edges" className="text-xs data-[state=active]:bg-white/10 data-[state=active]:text-white">Edges</TabsTrigger>
+                  <TabsTrigger value="json" className="text-xs data-[state=active]:bg-white/10 data-[state=active]:text-white">Raw JSON</TabsTrigger>
+                  <TabsTrigger value="stats" className="text-xs data-[state=active]:bg-white/10 data-[state=active]:text-white">Stats</TabsTrigger>
+                </TabsList>
+                <TabsContent value="tree" className="flex-1 overflow-auto mt-2">
+                  <DebugTree root={graph.root} />
+                </TabsContent>
+                <TabsContent value="edges" className="flex-1 overflow-auto mt-2">
+                  <DebugEdges graph={graph} />
+                </TabsContent>
+                <TabsContent value="json" className="flex-1 overflow-auto mt-2">
+                  <pre className="text-[11px] text-white/50 font-mono whitespace-pre">
+                    {JSON.stringify(graph, null, 2)}
+                  </pre>
+                </TabsContent>
+                <TabsContent value="stats" className="flex-1 overflow-auto mt-2">
+                  <DebugStats graph={graph} />
+                </TabsContent>
+              </Tabs>
+            </SheetContent>
+          </Sheet>
+        </div>
 
-          <TabsContent value="stats" className="mt-4">
-            <DebugStats graph={graph} />
-          </TabsContent>
-        </Tabs>
+        {/* Breadcrumb */}
+        <BreadcrumbNav />
+
+        {/* Main area */}
+        <div className="flex-1 flex overflow-hidden">
+          {/* Left: palette */}
+          <NodePalette />
+
+          {/* Center: canvas */}
+          <div className="flex-1">
+            <ArchitectureCanvas />
+          </div>
+
+          {/* Right: detail panel (conditional) */}
+          {selectedNodeId && <DetailPanel />}
+        </div>
       </div>
-    </div>
+    </ReactFlowProvider>
   );
 }

@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { githubAuth } from '../middleware/github-auth';
 import { cloneRepository, cleanupClone } from '../services/github';
 import { scanRepository } from '../services/scanner';
-import { getProject, saveArchitecture } from '../storage/memory-store';
+import { getProject, saveArchitecture, updateProject } from '../storage/supabase-store';
 
 export const scannerRouter = Router();
 
@@ -17,7 +17,7 @@ scannerRouter.post('/', async (req, res) => {
     return;
   }
 
-  const project = getProject(projectId);
+  const project = await getProject(projectId);
   if (!project) {
     res.status(404).json({ error: 'Project not found' });
     return;
@@ -30,11 +30,8 @@ scannerRouter.post('/', async (req, res) => {
     const graph = await scanRepository(clonePath, repoUrl, branch);
     graph.projectId = projectId;
 
-    saveArchitecture(projectId, graph);
-
-    // Update project's lastScannedAt
-    project.lastScannedAt = new Date().toISOString();
-    project.updatedAt = project.lastScannedAt;
+    await saveArchitecture(projectId, graph, repoUrl, branch);
+    await updateProject(projectId, { lastScannedAt: new Date().toISOString() });
 
     res.json({
       data: {
