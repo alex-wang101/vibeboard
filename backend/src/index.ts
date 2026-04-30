@@ -6,6 +6,7 @@ import { projectsRouter } from './routes/projects';
 import { githubRouter } from './routes/github';
 import { scannerRouter } from './routes/scanner';
 import { architectureRouter } from './routes/architecture';
+import { settingsRouter } from './routes/settings';
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -26,6 +27,7 @@ app.use('/projects', projectsRouter);
 app.use('/github', githubRouter);
 app.use('/scan', scannerRouter);
 app.use('/architecture', architectureRouter);
+app.use('/settings', settingsRouter);
 
 // Global error handler
 app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {

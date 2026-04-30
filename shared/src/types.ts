@@ -16,6 +16,78 @@ export interface ArchitectureGraph {
   root: ArchitectureNode;
   edges: FlowEdge[];                // All edges across the entire graph
   skippedImports: SkippedImport[];  // Imports that couldn't be resolved
+  enrichment?: Enrichment | null;   // LLM-generated semantic overlay (optional)
+}
+
+// ============================================================
+// ENRICHMENT LAYER — LLM-generated semantic overlay
+// Pure metadata that references the structural graph by ID.
+// Never duplicates structural data.
+// ============================================================
+
+export interface Enrichment {
+  graphHash: string;                           // SHA256 of structural graph — cache key
+  systemNarrative: string;                     // Pass 1 prose output
+  nodeAnnotations: Record<string, NodeAnnotation>;  // keyed by ArchitectureNode.id / FileInfo.path
+  edgeAnnotations: Record<string, EdgeAnnotation>;  // keyed by FlowEdge.id
+  groups: SemanticGroup[];
+  flows: NamedFlow[];
+  overviewNodeIds: string[];                   // 14-24 ids surfaced in Overview view
+  generatedAt: string;
+  model: string;                               // e.g. "claude-opus-4-6"
+  enricherVersion: string;
+}
+
+export interface NodeAnnotation {
+  semanticRole: string;                        // "Auth middleware", "Scan orchestrator"
+  description: string;                         // 1-2 sentences
+  layer?: string;                              // "Frontend" | "Backend" | "Shared" | custom
+  hideFromOverview: boolean;
+}
+
+export interface EdgeAnnotation {
+  verbLabel: string;                           // 1-4 word verb phrase
+  payload?: string;                            // What moves across this edge
+  crossesGroup: boolean;
+}
+
+export interface SemanticGroup {
+  id: string;
+  label: string;
+  memberNodeIds: string[];
+  tone?: 'blue' | 'amber' | 'mint' | 'rose' | 'indigo' | 'teal';
+}
+
+export interface NamedFlow {
+  id: string;
+  label: string;
+  edgeIds: string[];                           // Ordered sequence
+}
+
+export type EnrichmentState = 'uninitialized' | 'fresh' | 'stale';
+
+// ============================================================
+// Per-user LLM configuration for the enricher + build-agent.
+// Stored on the users table; Anthropic key is encrypted at rest.
+// ============================================================
+
+export type LLMProvider = 'anthropic' | 'ollama';
+
+export interface UserLLMConfig {
+  provider: LLMProvider;
+  anthropicApiKey?: string;          // plaintext — only present in memory after decrypt
+  ollamaHost?: string;               // e.g. "http://localhost:11434"
+  explainModel?: string;
+  annotateModel?: string;
+}
+
+// Request shape for saving config from frontend.
+export interface UpdateLLMConfigRequest {
+  provider: LLMProvider;
+  anthropicApiKey?: string;          // send plaintext; backend encrypts before storing
+  ollamaHost?: string;
+  explainModel?: string;
+  annotateModel?: string;
 }
 
 export interface ArchitectureNode {
